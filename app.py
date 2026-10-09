@@ -46,5 +46,21 @@ if archivo_subido is not None:
         ax.axis('off')
         ax.set_title("Gradiente Térmico Aprox.")
         st.pyplot(fig)
+        # --- Lógica de Clasificación ---
+        # Calculamos el gradiente promedio para determinar el nivel de enfriamiento
+        promedio_gradiente = np.mean(np.abs(dI_dx_centered))
+
+        st.markdown("---")
+        st.subheader("Resultado de la Clasificación")
+
+        # Ajusta estos valores numéricos según los rangos reales de tu proyecto
+        if promedio_gradiente < 10.0:
+            st.error("❌ **Enfriamiento Deficiente** (El néctar no alcanzó la temperatura/gradiente deseado)")
+        elif 10.0 <= promedio_gradiente <= 35.0:
+            st.success("✅ **Enfriamiento Óptimo** (Proceso de post-pasteurización adecuado)")
+        else:
+            st.warning("❄️ **Sobre-enfriamiento** (El gradiente térmico excede los parámetros ideales)")
+
+        st.metric(label="Gradiente Promedio Calculado", value=f"{promedio_gradiente:.2f}")
 else:
     st.info(" Sube una imagen térmica desde la barra lateral izquierda para iniciar el análisis.")
