@@ -34,8 +34,8 @@ except Exception as e:
 # --- FUNCIÓN DE ENVÍO DE CORREO SMTP ---
 def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
     # ⚠️ REEMPLAZA ESTAS LÍNEAS CON TU CORREO Y TU CONTRASEÑA DE GOOGLE DE 16 LETRAS:
-    remitente = "tu_correo@gmail.com" 
-    password = "xxxx xxxx xxxx xxxx" 
+    remitente = "astomolinamaria@gmail.com" 
+    password = "ebdx emmc wquy fsli" 
 
     msg = MIMEMultipart()
     msg['From'] = remitente
