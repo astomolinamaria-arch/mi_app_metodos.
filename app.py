@@ -65,14 +65,46 @@ def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
         return False
 
 # --- FUNCIÓN DE VALIDACIÓN DE IMAGEN TÉRMICA ---
+# --- FUNCIÓN MEJORADA Y ESTRICTA DE VALIDACIÓN TÉRMICA ---
 def es_imagen_termica_valida(imagen_np):
+    # Convertir a espacio de color HSV
     img_hsv = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2HSV)
-    saturacion_promedio = np.mean(img_hsv[:, :, 1])
-    desviacion_rgb = np.std(imagen_np, axis=(0, 1))
     
-    if saturacion_promedio < 35 or np.mean(desviacion_rgb) < 20:
-        return False, "La imagen no presenta la saturación ni variación cromática de un mapa térmico válido."
+    hue = img_hsv[:, :, 0]        # Tono (0-179 en OpenCV)
+    saturacion = img_hsv[:, :, 1] # Saturación (0-255)
+    valor = img_hsv[:, :, 2]      # Brillo/Intensidad (0-255)
+
+    # 1. Evaluación de Saturación Promedio
+    sat_promedio = np.mean(saturacion)
+    
+    # 2. Evaluación del Rango de Tono (Dispersión de la paleta térmica)
+    masca_validos = (saturacion > 40) & (valor > 30) & (valor < 245)
+    tonos_validos = hue[masca_validos]
+
+    if len(tonos_validos) < (imagen_np.shape[0] * imagen_np.shape[1] * 0.1):
+        return False, "La imagen no contiene una cantidad suficiente de información cromática válida."
+
+    desviacion_tono = np.std(tonos_validos)
+    
+    # 3. Varianza de color en los canales RGB
+    desviacion_rgb = np.std(imagen_np, axis=(0, 1))
+    promedio_desv_rgb = np.mean(desviacion_rgb)
+
+    # Umbrales estrictos de rechazo
+    if sat_promedio < 50:
+        return False, "Saturación muy baja. La imagen parece ser un documento, texto o foto en escala de grises."
+        
+    if desviacion_tono < 25:
+        return False, "Falta de diversidad de tonos. Un mapa térmico válido contiene la paleta completa (de azul a rojo)."
+
+    if promedio_desv_rgb < 30:
+        return False, "La distribución cromática no corresponde a la variabilidad de un mapa de calor térmico."
+
     return True, "OK"
+
+
+# Barra lateral para subir la imagen
+st.sidebar.header("Opciones de Análisis")
 
 # Barra lateral para subir la imagen
 st.sidebar.header("Opciones de Análisis")
