@@ -64,27 +64,40 @@ def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
         print(f"Error al enviar correo: {e}")
         return False
 
-# --- FUNCIÓN DE VALIDACIÓN DE IMAGEN TÉRMICA ---
-# --- FUNCIÓN MEJORADA Y ESTRICTA DE VALIDACIÓN TÉRMICA ---
+# --- FUNCIÓN DE VALIDACIÓN TÉRMICA ADAPTADA A DATASET Y TÉRMICAS REALES ---
 def es_imagen_termica_valida(imagen_np):
     # Convertir a espacio de color HSV
     img_hsv = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2HSV)
     
-    hue = img_hsv[:, :, 0]        # Tono (0-179 en OpenCV)
-    saturacion = img_hsv[:, :, 1] # Saturación (0-255)
-    valor = img_hsv[:, :, 2]      # Brillo/Intensidad (0-255)
+    saturacion = img_hsv[:, :, 1] # Canal S (0-255)
+    valor = img_hsv[:, :, 2]      # Canal V (0-255)
 
-    # 1. Evaluación de Saturación Promedio
+    # 1. Filtro contra imágenes en blanco y negro / documentos / escala de grises
     sat_promedio = np.mean(saturacion)
+    if sat_promedio < 15:
+        return False, "Saturación demasiado baja. La imagen parece ser un documento, texto o imagen en escala de grises."
+
+    # 2. Varianza entre canales RGB
+    # Para mapas JET/Térmicos, la diferencia de desviación entre R, G y B es pronunciada.
+    std_r = np.std(imagen_np[:, :, 0])
+    std_g = np.std(imagen_np[:, :, 1])
+    std_b = np.std(imagen_np[:, :, 2])
     
-    # 2. Evaluación del Rango de Tono (Dispersión de la paleta térmica)
-    masca_validos = (saturacion > 40) & (valor > 30) & (valor < 245)
-    tonos_validos = hue[masca_validos]
+    desviaciones = [std_r, std_g, std_b]
+    max_desv = np.max(desviaciones)
+    min_desv = np.min(desviaciones)
 
-    if len(tonos_validos) < (imagen_np.shape[0] * imagen_np.shape[1] * 0.1):
-        return False, "La imagen no contiene una cantidad suficiente de información cromática válida."
+    # Una foto normal o en escala de grises tiene desviaciones RGB casi idénticas.
+    # Una termografía (JET) muestra alta discrepancia entre canales por los cambios bruscos de temperatura.
+    if max_desv < 12 or (max_desv - min_desv) < 3:
+        return False, "La distribución de color no corresponde a una paleta térmica válida (JET/Rainbow)."
 
-    desviacion_tono = np.std(tonos_validos)
+    # 3. Filtrar imágenes de un solo color plano (ej. foto a una pared blanca o fondo uniforme)
+    varianza_total = np.var(imagen_np)
+    if varianza_total < 100:
+        return False, "La imagen es uniforme y no presenta gradientes ni variaciones de temperatura."
+
+    return True, "OK"
     
     # 3. Varianza de color en los canales RGB
     desviacion_rgb = np.std(imagen_np, axis=(0, 1))
