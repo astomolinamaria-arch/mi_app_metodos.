@@ -17,7 +17,7 @@ st.write("Aplicación interactiva para el análisis de gradiente térmico de enf
 # --- SECCIÓN 0: VIDEO TUTORIAL Y GUÍA ---
 with st.expander("📺 Ver Guía e Instructivo de Uso de la Aplicación"):
     st.write("En el siguiente video se explica el funcionamiento del análisis de gradiente y clasificación con IA:")
-    st.video("guía-de-instruccionmp4.mp4")
+    st.video("guia-de-instruccion.mp4")
 
 # Cargar el modelo entrenado Keras
 @st.cache_resource
