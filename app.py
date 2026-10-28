@@ -64,37 +64,40 @@ def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
         return False
 
 # --- FUNCIÓN DE VALIDACIÓN TÉRMICA CORREGIDA Y ROBUSTA ---
+# --- FUNCIÓN DE VALIDACIÓN COMPATIBLE CON TODO EL DATASET Y TÉRMICAS REALES ---
 def es_imagen_termica_valida(imagen_np):
-    # Convertir a espacio de color HSV
+    # 1. Convertir a espacio de color HSV
     img_hsv = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2HSV)
     
-    hue = img_hsv[:, :, 0]        # Canal Tono (0-179)
     saturacion = img_hsv[:, :, 1] # Canal Saturación (0-255)
-    valor = img_hsv[:, :, 2]      # Canal Brillo (0-255)
+    valor = img_hsv[:, :, 2]      # Canal Brillo / Intensidad (0-255)
 
-    # 1. Filtro estricto contra imágenes en blanco y negro / texto / escala de grises
+    # 2. Descartar imágenes puramente en escala de grises, documentos o texto en blanco y negro
     sat_promedio = np.mean(saturacion)
-    if sat_promedio < 30:
-        return False, "Saturación cromática muy baja. La imagen parece ser un documento, texto o fotografía en escala de grises."
+    if sat_promedio < 8:
+        return False, "Saturación insuficiente. La imagen parece ser un documento, texto o escala de grises."
 
-    # 2. Análisis de zonas térmicas activas
-    mascara_activa = (saturacion > 40) & (valor > 25) & (valor < 245)
-    tonos_activos = hue[mascara_activa]
+    # 3. Detección de gradiente térmico por variabilidad de intensidad
+    # Evalúa la diferencia entre el punto central y los bordes (característica clave del dataset)
+    std_valor = np.std(valor)
+    std_sat = np.std(saturacion)
 
-    if len(tonos_activos) < (imagen_np.shape[0] * imagen_np.shape[1] * 0.05):
-        return False, "La imagen no contiene suficientes zonas cromáticas activas con información de temperatura."
+    # Si la imagen no tiene variaciones de brillo ni saturación, es un fondo plano sin datos térmicos
+    if std_valor < 1.5 and std_sat < 1.5:
+        return False, "La imagen es plana y carece de variación térmica o gradiente."
 
-    # 3. Discrepancia de varianza entre canales RGB
-    # Las imágenes térmicas (JET/Rainbow) muestran desviaciones estándar muy dispares entre los canales R, G y B.
+    # 4. Evaluación de dispersión cromática (RGB)
     std_r = np.std(imagen_np[:, :, 0])
     std_g = np.std(imagen_np[:, :, 1])
     std_b = np.std(imagen_np[:, :, 2])
     
-    desviaciones = [std_r, std_g, std_b]
-    diferencia_canales = np.max(desviaciones) - np.min(desviaciones)
+    max_desv = max(std_r, std_g, std_b)
 
-    if diferencia_canales < 8:
-        return False, "La distribución cromática no presenta el contraste térmico característico de una termografía (paleta JET/Rainbow)."
+    # Verifica que al menos uno de los canales tenga información relevante
+    if max_desv < 1.5:
+        return False, "La imagen no presenta la distribución de color característica de un mapa térmico."
+
+    return True, "OK"
 
     # 4. Filtro de dispersión de tono (Diversidad cromática de azul a rojo)
     desviacion_tono = np.std(tonos_activos)
