@@ -17,7 +17,7 @@ st.write("Aplicación interactiva para el análisis de gradiente térmico de enf
 # --- SECCIÓN 0: VIDEO TUTORIAL Y GUÍA ---
 with st.expander("📺 Ver Guía e Instructivo de Uso de la Aplicación"):
     st.write("En el siguiente video se explica el funcionamiento del análisis de gradiente y clasificación con IA:")
-    st.video("guia-de-instruccion.mp4.mp4")
+    st.video("guia-de-instruccion.mp4")
 
 # Cargar el modelo entrenado Keras
 @st.cache_resource
@@ -33,7 +33,6 @@ except Exception as e:
 
 # --- FUNCIÓN DE ENVÍO DE CORREO SMTP ---
 def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
-    # ⚠️ REEMPLAZA ESTAS LÍNEAS CON TU CORREO Y TU CONTRASEÑA DE GOOGLE DE 16 LETRAS:
     remitente = "astomolinamaria@gmail.com" 
     password = "ebdx emmc wquy fsli" 
 
@@ -64,62 +63,53 @@ def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
         print(f"Error al enviar correo: {e}")
         return False
 
-# --- FUNCIÓN DE VALIDACIÓN TÉRMICA ADAPTADA A DATASET Y TÉRMICAS REALES ---
+# --- FUNCIÓN DE VALIDACIÓN TÉRMICA CORREGIDA Y ROBUSTA ---
 def es_imagen_termica_valida(imagen_np):
     # Convertir a espacio de color HSV
     img_hsv = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2HSV)
     
-    saturacion = img_hsv[:, :, 1] # Canal S (0-255)
-    valor = img_hsv[:, :, 2]      # Canal V (0-255)
+    hue = img_hsv[:, :, 0]        # Canal Tono (0-179)
+    saturacion = img_hsv[:, :, 1] # Canal Saturación (0-255)
+    valor = img_hsv[:, :, 2]      # Canal Brillo (0-255)
 
-    # 1. Filtro contra imágenes en blanco y negro / documentos / escala de grises
+    # 1. Filtro estricto contra imágenes en blanco y negro / texto / escala de grises
     sat_promedio = np.mean(saturacion)
-    if sat_promedio < 15:
-        return False, "Saturación demasiado baja. La imagen parece ser un documento, texto o imagen en escala de grises."
+    if sat_promedio < 30:
+        return False, "Saturación cromática muy baja. La imagen parece ser un documento, texto o fotografía en escala de grises."
 
-    # 2. Varianza entre canales RGB
-    # Para mapas JET/Térmicos, la diferencia de desviación entre R, G y B es pronunciada.
+    # 2. Análisis de zonas térmicas activas
+    mascara_activa = (saturacion > 40) & (valor > 25) & (valor < 245)
+    tonos_activos = hue[mascara_activa]
+
+    if len(tonos_activos) < (imagen_np.shape[0] * imagen_np.shape[1] * 0.05):
+        return False, "La imagen no contiene suficientes zonas cromáticas activas con información de temperatura."
+
+    # 3. Discrepancia de varianza entre canales RGB
+    # Las imágenes térmicas (JET/Rainbow) muestran desviaciones estándar muy dispares entre los canales R, G y B.
     std_r = np.std(imagen_np[:, :, 0])
     std_g = np.std(imagen_np[:, :, 1])
     std_b = np.std(imagen_np[:, :, 2])
     
     desviaciones = [std_r, std_g, std_b]
-    max_desv = np.max(desviaciones)
-    min_desv = np.min(desviaciones)
+    diferencia_canales = np.max(desviaciones) - np.min(desviaciones)
 
-    # Una foto normal o en escala de grises tiene desviaciones RGB casi idénticas.
-    # Una termografía (JET) muestra alta discrepancia entre canales por los cambios bruscos de temperatura.
-    if max_desv < 12 or (max_desv - min_desv) < 3:
-        return False, "La distribución de color no corresponde a una paleta térmica válida (JET/Rainbow)."
+    if diferencia_canales < 8:
+        return False, "La distribución cromática no presenta el contraste térmico característico de una termografía (paleta JET/Rainbow)."
 
-    # 3. Filtrar imágenes de un solo color plano (ej. foto a una pared blanca o fondo uniforme)
+    # 4. Filtro de dispersión de tono (Diversidad cromática de azul a rojo)
+    desviacion_tono = np.std(tonos_activos)
+    if desviacion_tono < 18:
+        return False, "Falta diversidad de color. Un mapa térmico válido requiere cambios de gradiente visible (azul, verde, amarillo, rojo)."
+
+    # 5. Varianza total para evitar imágenes de un solo color plano
     varianza_total = np.var(imagen_np)
-    if varianza_total < 100:
-        return False, "La imagen es uniforme y no presenta gradientes ni variaciones de temperatura."
-
-    return True, "OK"
-    
-    # 3. Varianza de color en los canales RGB
-    desviacion_rgb = np.std(imagen_np, axis=(0, 1))
-    promedio_desv_rgb = np.mean(desviacion_rgb)
-
-    # Umbrales estrictos de rechazo
-    if sat_promedio < 50:
-        return False, "Saturación muy baja. La imagen parece ser un documento, texto o foto en escala de grises."
-        
-    if desviacion_tono < 25:
-        return False, "Falta de diversidad de tonos. Un mapa térmico válido contiene la paleta completa (de azul a rojo)."
-
-    if promedio_desv_rgb < 30:
-        return False, "La distribución cromática no corresponde a la variabilidad de un mapa de calor térmico."
+    if varianza_total < 120:
+        return False, "La imagen es demasiado uniforme y no presenta gradientes de temperatura."
 
     return True, "OK"
 
 
-# Barra lateral para subir la imagen
-st.sidebar.header("Opciones de Análisis")
-
-# Barra lateral para subir la imagen
+# --- INTERFAZ SIDEBAR ---
 st.sidebar.header("Opciones de Análisis")
 archivo_subido = st.sidebar.file_uploader("Sube una imagen térmica...", type=["jpg", "png", "jpeg"])
 
@@ -132,7 +122,7 @@ if archivo_subido is not None:
 
     if not es_valida:
         st.error(f"❌ **Imagen rechazada:** {mensaje_val}")
-        st.warning("⚠️ **Atención:** Por favor sube una imagen térmica / mapa de calor del proceso.")
+        st.warning("⚠️ **Atención:** Por favor sube únicamente mapas térmicos / imágenes de calor en paleta JET o Rainbow.")
     else:
         # --- SECCIÓN 1: VISUALIZACIÓN Y ANÁLISIS DE MÉTODOS NUMÉRICOS ---
         st.subheader("📷 Visualización de Imagen y Métodos Numéricos (Diferencias Finitas)")
@@ -140,7 +130,7 @@ if archivo_subido is not None:
         img_gris = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2GRAY).astype(np.float32)
         h = 1
         
-        # Matrices para las 3 fórmulas de Colab
+        # Matrices para las 3 fórmulas de diferencias finitas
         dI_dx_forward = np.zeros_like(img_gris)
         dI_dx_backward = np.zeros_like(img_gris)
         dI_dx_centered = np.zeros_like(img_gris)
