@@ -12,6 +12,12 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 
+# ReportLab para generación de PDFs
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
 # Configuración principal de la interfaz
 st.set_page_config(page_title="Sistema de Control Pasteurización", layout="wide")
 
@@ -21,7 +27,7 @@ st.write("Aplicación interactiva para el análisis de gradiente térmico de enf
 # --- SECCIÓN 0: VIDEO TUTORIAL Y GUÍA ---
 with st.expander("📺 Ver Guía e Instructivo de Uso de la Aplicación"):
     st.write("En el siguiente video se explica el funcionamiento del análisis de gradiente y clasificación con IA:")
-    st.video("guia-de-instruccion.mp4.mp4")
+    st.video("https://www.youtube.com/watch?v=TU_ENLACE_DE_YOUTUBE")  # Reemplaza con tu enlace de YouTube si corresponde
 
 # Cargar el modelo entrenado Keras
 @st.cache_resource
@@ -42,18 +48,15 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
     story = []
     styles = getSampleStyleSheet()
 
-    # Estilos personalizados
     titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1A2B4C'), spaceAfter=10)
     subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#555555'), spaceAfter=15)
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, leading=14)
 
-    # Encabezado Corporativo
     story.append(Paragraph("<b>SISTEMA DE CONTROL DE CALIDAD - PASTEURIZACIÓN</b>", titulo_style))
     fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     story.append(Paragraph(f"<b>Informe Técnico Auditado</b> | Fecha de Generación: {fecha_actual}", subtitulo_style))
     story.append(Spacer(1, 10))
 
-    # Convertir imágenes para ReportLab
     img_pil = Image.fromarray(imagen_np)
     img_buffer = io.BytesIO()
     img_pil.save(img_buffer, format='PNG')
@@ -63,7 +66,6 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
     fig_perfil.savefig(fig_buffer, format='png', bbox_inches='tight', dpi=150)
     fig_buffer.seek(0)
 
-    # Renderizar termografía y perfil transversal en la misma fila
     img_rl = RLImage(img_buffer, width=220, height=180)
     fig_rl = RLImage(fig_buffer, width=300, height=180)
 
@@ -75,7 +77,6 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
     story.append(tabla_imagenes)
     story.append(Spacer(1, 15))
 
-    # Resultados y Métricas de Auditoría
     color_estado = colors.HexColor('#28A745') if resultado == 'Enfriamiento Óptimo' else colors.HexColor('#DC3545') if resultado == 'Enfriamiento Deficiente' else colors.HexColor('#17A2B8')
 
     datos_tabla = [
@@ -181,7 +182,6 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
     msg_alt.attach(MIMEText(html_cuerpo, 'html'))
     msg.attach(msg_alt)
 
-    # Imagen incrustada
     img_pil = Image.fromarray(imagen_np)
     img_byte_arr = io.BytesIO()
     img_pil.save(img_byte_arr, format='PNG')
@@ -192,7 +192,6 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
     mime_img.add_header('Content-Disposition', 'inline', filename="termografia.png")
     msg.attach(mime_img)
 
-    # Adjunto PDF
     pdf_bytes = generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_prom, gradiente_max)
     mime_pdf = MIMEApplication(pdf_bytes, Name=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
     mime_pdf.add_header('Content-Disposition', 'attachment', filename=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
@@ -208,51 +207,33 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
     except Exception as e:
         print(f"Error al enviar correo: {e}")
         return False
-# --- FUNCIÓN DE VALIDACIÓN TÉRMICA CORREGIDA Y ROBUSTA ---
+
+
 # --- FUNCIÓN DE VALIDACIÓN COMPATIBLE CON TODO EL DATASET Y TÉRMICAS REALES ---
 def es_imagen_termica_valida(imagen_np):
-    # 1. Convertir a espacio de color HSV
     img_hsv = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2HSV)
     
-    saturacion = img_hsv[:, :, 1] # Canal Saturación (0-255)
-    valor = img_hsv[:, :, 2]      # Canal Brillo / Intensidad (0-255)
+    saturacion = img_hsv[:, :, 1]
+    valor = img_hsv[:, :, 2]
 
-    # 2. Descartar imágenes puramente en escala de grises, documentos o texto en blanco y negro
     sat_promedio = np.mean(saturacion)
     if sat_promedio < 8:
         return False, "Saturación insuficiente. La imagen parece ser un documento, texto o escala de grises."
 
-    # 3. Detección de gradiente térmico por variabilidad de intensidad
-    # Evalúa la diferencia entre el punto central y los bordes (característica clave del dataset)
     std_valor = np.std(valor)
     std_sat = np.std(saturacion)
 
-    # Si la imagen no tiene variaciones de brillo ni saturación, es un fondo plano sin datos térmicos
     if std_valor < 1.5 and std_sat < 1.5:
         return False, "La imagen es plana y carece de variación térmica o gradiente."
 
-    # 4. Evaluación de dispersión cromática (RGB)
     std_r = np.std(imagen_np[:, :, 0])
     std_g = np.std(imagen_np[:, :, 1])
     std_b = np.std(imagen_np[:, :, 2])
     
     max_desv = max(std_r, std_g, std_b)
 
-    # Verifica que al menos uno de los canales tenga información relevante
     if max_desv < 1.5:
         return False, "La imagen no presenta la distribución de color característica de un mapa térmico."
-
-    return True, "OK"
-
-    # 4. Filtro de dispersión de tono (Diversidad cromática de azul a rojo)
-    desviacion_tono = np.std(tonos_activos)
-    if desviacion_tono < 18:
-        return False, "Falta diversidad de color. Un mapa térmico válido requiere cambios de gradiente visible (azul, verde, amarillo, rojo)."
-
-    # 5. Varianza total para evitar imágenes de un solo color plano
-    varianza_total = np.var(imagen_np)
-    if varianza_total < 120:
-        return False, "La imagen es demasiado uniforme y no presenta gradientes de temperatura."
 
     return True, "OK"
 
@@ -278,7 +259,6 @@ if archivo_subido is not None:
         img_gris = cv2.cvtColor(imagen_np, cv2.COLOR_RGB2GRAY).astype(np.float32)
         h = 1
         
-        # Matrices para las 3 fórmulas de diferencias finitas
         dI_dx_forward = np.zeros_like(img_gris)
         dI_dx_backward = np.zeros_like(img_gris)
         dI_dx_centered = np.zeros_like(img_gris)
@@ -289,7 +269,6 @@ if archivo_subido is not None:
                 dI_dx_backward[y, x] = (img_gris[y, x] - img_gris[y, x - h]) / h
                 dI_dx_centered[y, x] = (img_gris[y, x + h] - img_gris[y, x - h]) / (2 * h)
 
-        # Mostrar la comparación de los 3 métodos finitos
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -328,7 +307,6 @@ if archivo_subido is not None:
         m_col1.metric("Gradiente Promedio ($\partial I / \partial x$)", f"{promedio_gradiente:.2f}")
         m_col2.metric("Gradiente Máximo Detectado", f"{max_gradiente:.2f}")
 
-        # Gráfico del perfil transversal en Y=centro
         centro_y = img_gris.shape[0] // 2
         perfil_linea = img_gris[centro_y, :]
 
@@ -384,7 +362,6 @@ if archivo_subido is not None:
         c_m2.metric("Random Forest (RF)", "94.4%", "Machine Learning Tradicional")
         c_m3.metric("CRNN (CNN + GRU)", "100.0%", "Modelo Recurrente Híbrido")
 
-        # Curva de precisión
         fig_acc, ax_acc = plt.subplots(figsize=(10, 3))
         epocas = np.arange(1, 11)
         acc_train = [0.45, 0.65, 0.80, 0.88, 0.92, 0.95, 0.98, 0.99, 1.0, 1.0]
@@ -399,48 +376,31 @@ if archivo_subido is not None:
         ax_acc.grid(True, alpha=0.3)
         st.pyplot(fig_acc)
 
-        # --- SECCIÓN 5: FORMULARIO DE ENVÍO DE CORREO ---
+        # --- SECCIÓN 5: FORMULARIO ÚNICO DE ENVÍO DE CORREO EJECUTIVO ---
         st.markdown("---")
-        st.subheader("📧 Enviar Reporte por Correo Electrónico")
+        st.subheader("📧 Enviar Reporte Auditoría por Correo Electrónico")
 
-        with st.form("form_correo"):
+        with st.form("form_correo_ejecutivo"):
             correo_destino = st.text_input("Ingrese el correo electrónico del destinatario:")
-            boton_enviar = st.form_submit_button("Enviar Reporte")
+            boton_enviar = st.form_submit_button("Enviar Reporte Ejecutivo (PDF + HTML)")
 
             if boton_enviar:
                 if correo_destino:
-                    exito = enviar_reporte_correo(correo_destino, categoria_predicha, confianza, promedio_gradiente)
+                    exito = enviar_reporte_correo_ejecutivo(
+                        correo_destino, 
+                        categoria_predicha, 
+                        confianza, 
+                        promedio_gradiente, 
+                        max_gradiente, 
+                        imagen_np, 
+                        fig_perfil
+                    )
                     if exito:
-                        st.success(f"✅ Reporte enviado exitosamente a {correo_destino}")
+                        st.success(f"✅ Reporte técnico y PDF enviados exitosamente a {correo_destino}")
                     else:
-                        st.error("❌ Ocurrió un error al enviar el correo. Revisa las credenciales SMTP.")
+                        st.error("❌ Ocurrió un error al enviar el correo. Revisa la conexión y credenciales SMTP.")
                 else:
                     st.warning("Por favor ingrese un correo válido.")
 
 else:
     st.info("Sube una imagen térmica desde la barra lateral izquierda para iniciar el análisis.")
-    # --- SECCIÓN 5: FORMULARIO DE ENVÍO DE CORREO ---
-st.markdown("---")
-st.subheader("📧 Enviar Reporte Auditoría por Correo Electrónico")
-
-with st.form("form_correo"):
-    correo_destino = st.text_input("Ingrese el correo electrónico del destinatario:")
-    boton_enviar = st.form_submit_button("Enviar Reporte Ejecutivo")
-
-    if boton_enviar:
-        if correo_destino:
-            exito = enviar_reporte_correo_ejecutivo(
-                correo_destino, 
-                categoria_predicha, 
-                confianza, 
-                promedio_gradiente, 
-                max_gradiente, 
-                imagen_np, 
-                fig_perfil
-            )
-            if exito:
-                st.success(f"✅ Reporte técnico y PDF enviados exitosamente a {correo_destino}")
-            else:
-                st.error("❌ Ocurrió un error al enviar el correo. Revisa la conexión y credenciales SMTP.")
-        else:
-            st.warning("Por favor ingrese un correo válido.")
