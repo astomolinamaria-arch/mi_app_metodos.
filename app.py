@@ -5,8 +5,12 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import tensorflow as tf
 import smtplib
+import io
+import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
 
 # Configuración principal de la interfaz
 st.set_page_config(page_title="Sistema de Control Pasteurización", layout="wide")
@@ -31,26 +35,168 @@ except Exception as e:
     st.error(f"Error al cargar el modelo .h5: {e}")
     st.stop()
 
-# --- FUNCIÓN DE ENVÍO DE CORREO SMTP ---
-def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
+# --- FUNCIÓN 1: GENERACIÓN DEL REPORTE PDF EN MEMORIA ---
+def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_prom, gradiente_max):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Estilos personalizados
+    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1A2B4C'), spaceAfter=10)
+    subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#555555'), spaceAfter=15)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, leading=14)
+
+    # Encabezado Corporativo
+    story.append(Paragraph("<b>SISTEMA DE CONTROL DE CALIDAD - PASTEURIZACIÓN</b>", titulo_style))
+    fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    story.append(Paragraph(f"<b>Informe Técnico Auditado</b> | Fecha de Generación: {fecha_actual}", subtitulo_style))
+    story.append(Spacer(1, 10))
+
+    # Convertir imágenes para ReportLab
+    img_pil = Image.fromarray(imagen_np)
+    img_buffer = io.BytesIO()
+    img_pil.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+
+    fig_buffer = io.BytesIO()
+    fig_perfil.savefig(fig_buffer, format='png', bbox_inches='tight', dpi=150)
+    fig_buffer.seek(0)
+
+    # Renderizar termografía y perfil transversal en la misma fila
+    img_rl = RLImage(img_buffer, width=220, height=180)
+    fig_rl = RLImage(fig_buffer, width=300, height=180)
+
+    tabla_imagenes = Table([[img_rl, fig_rl]], colWidths=[240, 300])
+    tabla_imagenes.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(tabla_imagenes)
+    story.append(Spacer(1, 15))
+
+    # Resultados y Métricas de Auditoría
+    color_estado = colors.HexColor('#28A745') if resultado == 'Enfriamiento Óptimo' else colors.HexColor('#DC3545') if resultado == 'Enfriamiento Deficiente' else colors.HexColor('#17A2B8')
+
+    datos_tabla = [
+        [Paragraph("<b>Parámetro Evaluable</b>", ParagraphStyle('H1', parent=body_style, textColor=colors.white)), 
+         Paragraph("<b>Valor Calculado / Diagnóstico</b>", ParagraphStyle('H2', parent=body_style, textColor=colors.white))],
+        ["Resultado de Clasificación (CNN)", Paragraph(f"<font color='{color_estado.hexval()}'><b>{resultado}</b></font>", body_style)],
+        ["Nivel de Confianza (Softmax)", f"{confianza:.2f} %"],
+        ["Gradiente Térmico Promedio (dI/dx)", f"{gradiente_prom:.2f}"],
+        ["Gradiente Térmico Máximo", f"{gradiente_max:.2f}"],
+        ["Estado del Proceso", "Aprobado / Dentro de Norma" if resultado == 'Enfriamiento Óptimo' else "Requiere Revisión de Planta"]
+    ]
+
+    tabla_resumen = Table(datos_tabla, colWidths=[260, 280])
+    tabla_resumen.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1A2B4C')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#DDDDDD')),
+        ('PADDING', (0, 0), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8F9FA')])
+    ]))
+
+    story.append(tabla_resumen)
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("<b>Nota de Certificación:</b> Documento generado automáticamente mediante visión por computadora y análisis de diferencias finitas.", ParagraphStyle('Foot', parent=body_style, fontSize=8, textColor=colors.gray)))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+# --- FUNCIÓN 2: ENVÍO DE CORREO HTML + ADJUNTOS ---
+def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradiente_prom, gradiente_max, imagen_np, fig_perfil):
     remitente = "astomolinamaria@gmail.com" 
     password = "ebdx emmc wquy fsli" 
 
-    msg = MIMEMultipart()
-    msg['From'] = remitente
+    msg = MIMEMultipart('related')
+    msg['From'] = f"Control de Calidad Pasteurización <{remitente}>"
     msg['To'] = destinatario
-    msg['Subject'] = "Reporte de Control de Calidad - Pasteurización"
+    msg['Subject'] = f"🚨 REPORTE DE CONTROL DE CALIDAD: {resultado.upper()} [{datetime.datetime.now().strftime('%d/%m/%Y')}]"
 
-    cuerpo = f"""
-    Reporte Automático de Diagnóstico Termográfico
-    --------------------------------------------------
-    Resultado de Clasificación (CNN): {resultado}
-    Confianza del Diagnóstico: {confianza:.1f}%
-    Gradiente Térmico Promedio (dI/dx): {gradiente_prom:.2f}
+    color_badge = "#28a745" if resultado == 'Enfriamiento Óptimo' else "#dc3545" if resultado == 'Enfriamiento Deficiente' else "#17a2b8"
 
-    Este reporte fue generado desde la aplicación web de Pasteurización.
+    html_cuerpo = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; }}
+            .container {{ max-width: 650px; background-color: #ffffff; border-radius: 8px; padding: 25px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }}
+            .header {{ background-color: #1a2b4c; color: white; padding: 15px; text-align: center; border-radius: 6px 6px 0 0; }}
+            .badge {{ background-color: {color_badge}; color: white; padding: 6px 12px; border-radius: 20px; font-weight: bold; display: inline-block; font-size: 14px; }}
+            .metrics-grid {{ display: flex; margin: 20px 0; gap: 10px; text-align: center; }}
+            .metric-card {{ background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px; flex: 1; }}
+            .metric-value {{ font-size: 20px; font-weight: bold; color: #1a2b4c; }}
+            .metric-label {{ font-size: 11px; color: #6c757d; text-transform: uppercase; }}
+            .img-container {{ text-align: center; margin: 20px 0; background: #f8f9fa; padding: 10px; border-radius: 6px; }}
+            .footer {{ font-size: 11px; text-align: center; color: #888888; margin-top: 25px; border-top: 1px solid #eee; padding-top: 10px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2 style="margin:0;">Sistema de Control de Calidad Térmica</h2>
+                <p style="margin:5px 0 0 0; font-size: 13px; opacity: 0.8;">Informe Automático de Pasteurización</p>
+            </div>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <span class="badge">{resultado}</span>
+                <p style="color: #555; margin-top: 10px;">La muestra procesada ha sido analizada mediante Redes Neuronales Convolucionales (CNN).</p>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">{confianza:.1f}%</div>
+                    <div class="metric-label">Confianza CNN</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{gradiente_prom:.2f}</div>
+                    <div class="metric-label">Gradiente Promedio</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{gradiente_max:.2f}</div>
+                    <div class="metric-label">Gradiente Máximo</div>
+                </div>
+            </div>
+
+            <div class="img-container">
+                <h4 style="margin-top:5px; color:#333;">Termografía Evaluable de la Muestra</h4>
+                <img src="cid:imagen_termica" style="max-width: 100%; height: auto; border-radius: 4px; border: 1px solid #ccc;">
+            </div>
+
+            <p style="font-size: 13px; color: #444;">📎 <b>Adjunto a este correo</b> encontrará el <b>Reporte Técnico Completo en formato PDF</b> con la auditoría de diferencias finitas y el perfil transversal para su base de datos.</p>
+
+            <div class="footer">
+                Este correo fue generado de forma automática por la Plataforma de Monitoreo Térmico.<br>
+                © 2026 Pasteurización & Control Industrial.
+            </div>
+        </div>
+    </body>
+    </html>
     """
-    msg.attach(MIMEText(cuerpo, 'plain'))
+
+    msg_alt = MIMEMultipart('alternative')
+    msg_alt.attach(MIMEText(html_cuerpo, 'html'))
+    msg.attach(msg_alt)
+
+    # Imagen incrustada
+    img_pil = Image.fromarray(imagen_np)
+    img_byte_arr = io.BytesIO()
+    img_pil.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
+    
+    mime_img = MIMEImage(img_byte_arr.read())
+    mime_img.add_header('Content-ID', '<imagen_termica>')
+    mime_img.add_header('Content-Disposition', 'inline', filename="termografia.png")
+    msg.attach(mime_img)
+
+    # Adjunto PDF
+    pdf_bytes = generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_prom, gradiente_max)
+    mime_pdf = MIMEApplication(pdf_bytes, Name=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
+    mime_pdf.add_header('Content-Disposition', 'attachment', filename=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
+    msg.attach(mime_pdf)
 
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -62,7 +208,6 @@ def enviar_reporte_correo(destinatario, resultado, confianza, gradiente_prom):
     except Exception as e:
         print(f"Error al enviar correo: {e}")
         return False
-
 # --- FUNCIÓN DE VALIDACIÓN TÉRMICA CORREGIDA Y ROBUSTA ---
 # --- FUNCIÓN DE VALIDACIÓN COMPATIBLE CON TODO EL DATASET Y TÉRMICAS REALES ---
 def es_imagen_termica_valida(imagen_np):
@@ -274,3 +419,28 @@ if archivo_subido is not None:
 
 else:
     st.info("Sube una imagen térmica desde la barra lateral izquierda para iniciar el análisis.")
+    # --- SECCIÓN 5: FORMULARIO DE ENVÍO DE CORREO ---
+st.markdown("---")
+st.subheader("📧 Enviar Reporte Auditoría por Correo Electrónico")
+
+with st.form("form_correo"):
+    correo_destino = st.text_input("Ingrese el correo electrónico del destinatario:")
+    boton_enviar = st.form_submit_button("Enviar Reporte Ejecutivo")
+
+    if boton_enviar:
+        if correo_destino:
+            exito = enviar_reporte_correo_ejecutivo(
+                correo_destino, 
+                categoria_predicha, 
+                confianza, 
+                promedio_gradiente, 
+                max_gradiente, 
+                imagen_np, 
+                fig_perfil
+            )
+            if exito:
+                st.success(f"✅ Reporte técnico y PDF enviados exitosamente a {correo_destino}")
+            else:
+                st.error("❌ Ocurrió un error al enviar el correo. Revisa la conexión y credenciales SMTP.")
+        else:
+            st.warning("Por favor ingrese un correo válido.")
