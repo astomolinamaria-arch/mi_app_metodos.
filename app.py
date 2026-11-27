@@ -19,15 +19,21 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 # Configuración principal de la interfaz
-st.set_page_config(page_title="Sistema de Control Pasteurización", layout="wide")
+st.set_page_config(page_title="Control Térmico - Néctar de Mango", layout="wide")
 
-st.title("Clasificación Termográfica de Fallas en Pasteurización")
-st.write("Aplicación interactiva para el análisis de gradiente térmico de enfriamiento post-pasteurización.")
+st.title("Clasificación Termográfica en Néctar de Mango")
+st.write("Aplicación interactiva para el análisis de gradiente térmico en la etapa de enfriamiento post-pasteurización.")
 
-# --- SECCIÓN 0: VIDEO TUTORIAL Y GUÍA ---
+# --- SECCIÓN 0: VIDEO TUTORIAL Y GUÍA (LECTURA EN BYTES PARA EVITAR PANTALLA NEGRA) ---
 with st.expander("📺 Ver Guía e Instructivo de Uso de la Aplicación"):
     st.write("En el siguiente video se explica el funcionamiento del análisis de gradiente y clasificación con IA:")
-    st.video("https://www.youtube.com/watch?v=TU_ENLACE_DE_YOUTUBE")  # Reemplaza con tu enlace de YouTube si corresponde
+    try:
+        # Cambia el nombre aquí si en GitHub se llama distinto (ej. "guia-de-instruccion.mp4.mp4")
+        with open("guia-de-instruccion.mp4", "rb") as video_file:
+            video_bytes = video_file.read()
+        st.video(video_bytes)
+    except FileNotFoundError:
+        st.warning("⚠️ No se encontró el video local. Verifica que el nombre en GitHub coincida exactamente con el código.")
 
 # Cargar el modelo entrenado Keras
 @st.cache_resource
@@ -48,13 +54,16 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
     story = []
     styles = getSampleStyleSheet()
 
-    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1A2B4C'), spaceAfter=10)
-    subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#555555'), spaceAfter=15)
+    titulo_style = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1A2B4C'), spaceAfter=6)
+    subtitulo_style = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#D97706'), spaceAfter=8)
+    fecha_style = ParagraphStyle('Fecha', parent=styles['Normal'], fontSize=9, textColor=colors.gray, spaceAfter=15)
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, leading=14)
 
-    story.append(Paragraph("<b>SISTEMA DE CONTROL DE CALIDAD - PASTEURIZACIÓN</b>", titulo_style))
+    # Encabezado Corporativo Personalizado
+    story.append(Paragraph("<b>SISTEMA DE CONTROL DE CALIDAD TÉRMICA</b>", titulo_style))
+    story.append(Paragraph("<b>Néctar de Mango | Etapa de Enfriamiento Post-Pasteurización</b>", subtitulo_style))
     fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    story.append(Paragraph(f"<b>Informe Técnico Auditado</b> | Fecha de Generación: {fecha_actual}", subtitulo_style))
+    story.append(Paragraph(f"<b>Informe Técnico Auditado</b> | Fecha de Generación: {fecha_actual}", fecha_style))
     story.append(Spacer(1, 10))
 
     img_pil = Image.fromarray(imagen_np)
@@ -82,6 +91,7 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
     datos_tabla = [
         [Paragraph("<b>Parámetro Evaluable</b>", ParagraphStyle('H1', parent=body_style, textColor=colors.white)), 
          Paragraph("<b>Valor Calculado / Diagnóstico</b>", ParagraphStyle('H2', parent=body_style, textColor=colors.white))],
+        ["Producto / Etapa Evaluada", "Néctar de Mango - Enfriamiento Post-Pasteurización"],
         ["Resultado de Clasificación (CNN)", Paragraph(f"<font color='{color_estado.hexval()}'><b>{resultado}</b></font>", body_style)],
         ["Nivel de Confianza (Softmax)", f"{confianza:.2f} %"],
         ["Gradiente Térmico Promedio (dI/dx)", f"{gradiente_prom:.2f}"],
@@ -99,7 +109,7 @@ def generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_p
 
     story.append(tabla_resumen)
     story.append(Spacer(1, 20))
-    story.append(Paragraph("<b>Nota de Certificación:</b> Documento generado automáticamente mediante visión por computadora y análisis de diferencias finitas.", ParagraphStyle('Foot', parent=body_style, fontSize=8, textColor=colors.gray)))
+    story.append(Paragraph("<b>Nota de Certificación:</b> Documento generado automáticamente mediante visión por computadora y análisis de diferencias finitas para control de calidad en néctar de mango.", ParagraphStyle('Foot', parent=body_style, fontSize=8, textColor=colors.gray)))
 
     doc.build(story)
     buffer.seek(0)
@@ -112,9 +122,9 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
     password = "ebdx emmc wquy fsli" 
 
     msg = MIMEMultipart('related')
-    msg['From'] = f"Control de Calidad Pasteurización <{remitente}>"
+    msg['From'] = f"Control de Calidad - Néctar de Mango <{remitente}>"
     msg['To'] = destinatario
-    msg['Subject'] = f"🚨 REPORTE DE CONTROL DE CALIDAD: {resultado.upper()} [{datetime.datetime.now().strftime('%d/%m/%Y')}]"
+    msg['Subject'] = f"🚨 REPORTE DE CALIDAD: {resultado.upper()} - Néctar de Mango [{datetime.datetime.now().strftime('%d/%m/%Y')}]"
 
     color_badge = "#28a745" if resultado == 'Enfriamiento Óptimo' else "#dc3545" if resultado == 'Enfriamiento Deficiente' else "#17a2b8"
 
@@ -139,12 +149,12 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
         <div class="container">
             <div class="header">
                 <h2 style="margin:0;">Sistema de Control de Calidad Térmica</h2>
-                <p style="margin:5px 0 0 0; font-size: 13px; opacity: 0.8;">Informe Automático de Pasteurización</p>
+                <p style="margin:5px 0 0 0; font-size: 14px; color: #fbbf24;"><b>Néctar de Mango: Etapa de Enfriamiento Post-Pasteurización</b></p>
             </div>
             
             <div style="margin-top: 20px; text-align: center;">
                 <span class="badge">{resultado}</span>
-                <p style="color: #555; margin-top: 10px;">La muestra procesada ha sido analizada mediante Redes Neuronales Convolucionales (CNN).</p>
+                <p style="color: #555; margin-top: 10px;">La muestra de <b>néctar de mango</b> ha sido evaluada en su etapa de enfriamiento post-pasteurización mediante Redes Neuronales Convolucionales (CNN).</p>
             </div>
 
             <div class="metrics-grid">
@@ -171,7 +181,7 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
 
             <div class="footer">
                 Este correo fue generado de forma automática por la Plataforma de Monitoreo Térmico.<br>
-                © 2026 Pasteurización & Control Industrial.
+                © 2026 Control Industrial - Néctar de Mango.
             </div>
         </div>
     </body>
@@ -193,8 +203,8 @@ def enviar_reporte_correo_ejecutivo(destinatario, resultado, confianza, gradient
     msg.attach(mime_img)
 
     pdf_bytes = generar_pdf_reporte(imagen_np, fig_perfil, resultado, confianza, gradiente_prom, gradiente_max)
-    mime_pdf = MIMEApplication(pdf_bytes, Name=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
-    mime_pdf.add_header('Content-Disposition', 'attachment', filename=f"Reporte_Pasteurizacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
+    mime_pdf = MIMEApplication(pdf_bytes, Name=f"Reporte_NectarMango_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
+    mime_pdf.add_header('Content-Disposition', 'attachment', filename=f"Reporte_NectarMango_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf")
     msg.attach(mime_pdf)
 
     try:
@@ -246,7 +256,6 @@ if archivo_subido is not None:
     imagen_pil = Image.open(archivo_subido).convert('RGB')
     imagen_np = np.array(imagen_pil)
 
-    # Validar si es una termografía antes de continuar
     es_valida, mensaje_val = es_imagen_termica_valida(imagen_np)
 
     if not es_valida:
@@ -313,7 +322,7 @@ if archivo_subido is not None:
         fig_perfil, ax_p = plt.subplots(figsize=(10, 3))
         ax_p.plot(perfil_linea, color='red', linewidth=2, label='Intensidad Térmica')
         ax_p.axhline(y=np.mean(perfil_linea), color='gray', linestyle='--', label='Promedio')
-        ax_p.set_title(f"Perfil de Temperatura Transversal (Línea Central Y={centro_y})")
+        ax_p.set_title(f"Perfil de Temperatura Transversal - Néctar de Mango (Línea Central Y={centro_y})")
         ax_p.set_xlabel("Posición Horizontal (Píxeles)")
         ax_p.set_ylabel("Intensidad Térmica")
         ax_p.legend()
