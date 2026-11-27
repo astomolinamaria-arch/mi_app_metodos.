@@ -29,7 +29,7 @@ with st.expander("📺 Ver Guía e Instructivo de Uso de la Aplicación"):
     st.write("En el siguiente video se explica el funcionamiento del análisis de gradiente y clasificación con IA:")
     try:
         # Cambia el nombre aquí si en GitHub se llama distinto (ej. "guia-de-instruccion.mp4.mp4")
-        with open("guia-de-instruccion.mp4", "rb") as video_file:
+        with open("guia-de-instruccion.mp4.mp4", "rb") as video_file:
             video_bytes = video_file.read()
         st.video(video_bytes)
     except FileNotFoundError:
